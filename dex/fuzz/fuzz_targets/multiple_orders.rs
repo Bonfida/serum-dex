@@ -415,8 +415,7 @@ fn run_action<'bump>(
                 if client_order_id == 0 {
                     return;
                 }
-                return;
-                MarketInstruction::CancelOrderByClientId(client_order_id)
+                MarketInstruction::CancelOrderByClientIdV2(client_order_id)
             } else {
                 MarketInstruction::CancelOrderV2(CancelOrderInstructionV2 {
                     side,

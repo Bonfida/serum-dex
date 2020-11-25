@@ -461,6 +461,41 @@ impl OpenOrders {
         self.free_slot_bits & slot_mask != 0
     }
 
+    #[inline]
+    fn iter_filled_slots(&self) -> impl Iterator<Item = u8> {
+        struct Iter {
+            bits: u128,
+        }
+        impl Iterator for Iter {
+            type Item = u8;
+            #[inline(always)]
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.bits == 0 {
+                    None
+                } else {
+                    let next = self.bits.trailing_zeros();
+                    let mask = 1u128 << next;
+                    self.bits &= !mask;
+                    Some(next as u8)
+                }
+            }
+        }
+        Iter {
+            bits: !self.free_slot_bits
+        }
+    }
+
+    #[inline]
+    fn orders_with_client_ids(&self) -> impl Iterator<Item = (NonZeroU64, u128, Side)> + '_ {
+        self.iter_filled_slots()
+            .filter_map(move |slot| {
+                let client_order_id = NonZeroU64::new(self.client_order_ids[slot as usize])?;
+                let order_id = self.orders[slot as usize];
+                let side = self.slot_side(slot).unwrap();
+                Some((client_order_id, order_id, side))
+            })
+    }
+
     pub fn slot_side(&self, slot: u8) -> Option<Side> {
         let slot_mask = 1u128 << slot;
         if self.free_slot_bits & slot_mask != 0 {
@@ -1860,19 +1895,59 @@ pub mod account_parser {
 
     pub struct CancelOrderByClientIdV2Args<'a, 'b: 'a> {
         pub client_order_id: NonZeroU64,
-        pub open_orders: &'a mut OpenOrders,
         pub open_orders_address: [u64; 4],
-        pub orders_owner: SignerAccount<'a, 'b>,
+        pub open_orders: &'a mut OpenOrders,
+        pub open_orders_signer: SignerAccount<'a, 'b>,
         pub order_book_state: OrderBookState<'a>,
+        pub event_q: EventQueue<'a>,
     }
     impl<'a, 'b: 'a> CancelOrderByClientIdV2Args<'a, 'b> {
         pub fn with_parsed_args<T>(
             program_id: &'a Pubkey,
             accounts: &'a [AccountInfo<'b>],
-            client_id: u64,
+            client_order_id: u64,
             f: impl FnOnce(CancelOrderByClientIdV2Args) -> DexResult<T>,
         ) -> DexResult<T> {
-            unimplemented!()
+            check_assert!(accounts.len() >= 6)?;
+            #[rustfmt::skip]
+            let &[
+                ref market_acc,
+                ref bids_acc,
+                ref asks_acc,
+                ref open_orders_acc,
+                ref open_orders_signer_acc,
+                ref event_q_acc,
+            ] = array_ref![accounts, 0, 6];
+
+            let client_order_id = NonZeroU64::new(client_order_id).ok_or(assertion_error!())?;
+
+            let mut market = MarketState::load(market_acc, program_id).or(check_unreachable!())?;
+
+            let open_orders_signer = SignerAccount::new(open_orders_signer_acc)?;
+            let mut open_orders =
+                market.load_orders_mut(open_orders_acc, Some(open_orders_signer.inner()), program_id, None)?;
+            let open_orders_address = open_orders_acc.key.to_aligned_bytes();
+
+            let mut bids = market.load_bids_mut(bids_acc).or(check_unreachable!())?;
+            let mut asks = market.load_asks_mut(asks_acc).or(check_unreachable!())?;
+
+            let mut event_q = market.load_event_queue_mut(event_q_acc)?;
+
+            let order_book_state = OrderBookState {
+                bids: bids.deref_mut(),
+                asks: asks.deref_mut(),
+                market_state: market.deref_mut(),
+            };
+
+            let args = CancelOrderByClientIdV2Args {
+                client_order_id,
+                open_orders_address,
+                open_orders: open_orders.deref_mut(),
+                open_orders_signer,
+                order_book_state,
+                event_q,
+            };
+            f(args)
         }
     }
 
@@ -2257,7 +2332,27 @@ impl State {
     fn process_cancel_order_by_client_id_v2(
         args: account_parser::CancelOrderByClientIdV2Args,
     ) -> DexResult {
-        unimplemented!()
+        let account_parser::CancelOrderByClientIdV2Args {
+            client_order_id,
+            open_orders_address,
+            open_orders,
+            open_orders_signer: _,
+
+            mut order_book_state,
+            mut event_q,
+        } = args;
+
+        let (_, order_id, side) = open_orders.orders_with_client_ids()
+            .find(|entry| client_order_id == entry.0)
+            .ok_or(DexErrorCode::ClientIdNotFound)?;
+        order_book_state.cancel_order_v2(
+            side,
+            open_orders_address,
+            open_orders,
+            order_id,
+            &mut event_q,
+        )
+
     }
 
     fn process_cancel_order(args: account_parser::CancelOrderArgs) -> DexResult {

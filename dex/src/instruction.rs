@@ -452,6 +452,10 @@ impl MarketInstruction {
                 let data_arr = array_ref![data, 0, 20];
                 CancelOrderInstructionV2::unpack(data_arr)?
             }),
+            (12, 8) => {
+                let client_id = array_ref![data, 0, 8];
+                MarketInstruction::CancelOrderByClientIdV2(u64::from_le_bytes(*client_id))
+            }
             _ => return None,
         })
     }
