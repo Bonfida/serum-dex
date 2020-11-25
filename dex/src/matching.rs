@@ -14,7 +14,7 @@ use crate::{
     critbit::{LeafNode, NodeHandle, Slab, SlabView},
     error::DexError,
     fees::{self, FeeTier},
-    state::{Event, EventQueue, EventView, MarketState, Request, RequestQueue, RequestView},
+    state::{Event, EventQueue, EventView, MarketState, Request, RequestQueue, RequestView, OpenOrders},
 };
 
 #[cfg(not(feature = "program"))]
@@ -842,6 +842,50 @@ impl<'ob> OrderBookState<'ob> {
         }
 
         Ok(None)
+    }
+
+    pub(crate) fn cancel_order_v2(
+        &mut self,
+        side: Side,
+        open_orders_address: [u64; 4],
+        open_orders: &mut OpenOrders,
+        order_id: u128,
+
+        event_q: &mut EventQueue,
+    ) -> DexResult {
+        let leaf_node = self
+            .orders_mut(side)
+            .remove_by_key(order_id)
+            .ok_or(DexErrorCode::OrderNotFound)?;
+        check_assert_eq!(leaf_node.owner(), open_orders_address).or(Err(DexErrorCode::OrderNotYours))?;
+
+        let open_orders_slot = leaf_node.owner_slot();
+        check_assert_eq!(Some(side), open_orders.slot_side(open_orders_slot))?;
+        check_assert_eq!(order_id, open_orders.orders[open_orders_slot as usize])?;
+
+        event_q
+            .push_back(Event::new(EventView::Out {
+                side,
+                native_qty_unlocked: 0,
+                native_qty_still_locked: 0,
+                order_id,
+                owner: open_orders_address,
+                owner_slot: open_orders_slot,
+                client_order_id: NonZeroU64::new(leaf_node.client_order_id()),
+            }))
+            .map_err(|_| DexErrorCode::EventQueueFull)?;
+
+        match side {
+            Side::Bid => {
+                let native_qty_unlocked = leaf_node.quantity() * leaf_node.price().get() * self.market_state.pc_lot_size;
+                open_orders.unlock_pc(native_qty_unlocked);
+            }
+            Side::Ask => {
+                let native_qty_unlocked = leaf_node.quantity() * self.market_state.coin_lot_size;
+                open_orders.unlock_coin(native_qty_unlocked);
+            }
+        }
+        Ok(())
     }
 
     fn cancel_order(

@@ -15,7 +15,7 @@ use libfuzzer_sys::fuzz_target;
 use solana_program::account_info::AccountInfo;
 
 use serum_dex::error::{DexError, DexErrorCode};
-use serum_dex::instruction::{CancelOrderInstruction, MarketInstruction, NewOrderInstructionV2};
+use serum_dex::instruction::{CancelOrderInstructionV2, CancelOrderInstruction, MarketInstruction, NewOrderInstructionV3};
 use serum_dex::matching::Side;
 use serum_dex::state::{strip_header, MarketState, OpenOrders, ToAlignedBytes};
 use serum_dex_fuzz::{
@@ -28,12 +28,17 @@ use serum_dex_fuzz::{
 enum Action {
     PlaceOrder {
         owner_id: OwnerId,
-        instruction: NewOrderInstructionV2,
+        instruction: NewOrderInstructionV3,
     },
     CancelOrder {
         owner_id: OwnerId,
         slot: u8,
         by_client_id: bool,
+    },
+    CancelRandomOrder {
+        side: Side,
+        owner_id: OwnerId,
+        order_id: u128,
     },
     MatchOrders(u16),
     ConsumeEvents(u16),
@@ -350,6 +355,9 @@ fn run_action<'bump>(
                     market_accounts.market.clone(),
                     owner.orders_account.clone(),
                     market_accounts.req_q.clone(),
+                    market_accounts.event_q.clone(),
+                    market_accounts.bids.clone(),
+                    market_accounts.asks.clone(),
                     if instruction.side == Side::Bid {
                         owner.pc_account.clone()
                     } else {
@@ -361,7 +369,7 @@ fn run_action<'bump>(
                     market_accounts.spl_token_program.clone(),
                     market_accounts.rent_sysvar.clone(),
                 ],
-                &MarketInstruction::NewOrderV2(instruction.clone()).pack(),
+                &MarketInstruction::NewOrderV3(instruction.clone()).pack(),
             )
             .map_err(|e| match e {
                 DexError::ErrorCode(DexErrorCode::InsufficientFunds) => {}
@@ -407,26 +415,28 @@ fn run_action<'bump>(
                 if client_order_id == 0 {
                     return;
                 }
+                return;
                 MarketInstruction::CancelOrderByClientId(client_order_id)
             } else {
-                MarketInstruction::CancelOrder(CancelOrderInstruction {
+                MarketInstruction::CancelOrderV2(CancelOrderInstructionV2 {
                     side,
                     order_id,
-                    owner: [0u64; 4],
-                    owner_slot: slot,
                 })
             };
             process_instruction(
                 market_accounts.market.owner,
                 &[
                     market_accounts.market.clone(),
+                    market_accounts.bids.clone(),
+                    market_accounts.asks.clone(),
                     owner.orders_account.clone(),
-                    market_accounts.req_q.clone(),
                     owner.signer_account.clone(),
+                    market_accounts.event_q.clone(),
                 ],
                 &instruction.pack(),
             )
             .map_err(|e| match e {
+                DexError::ErrorCode(DexErrorCode::OrderNotFound) => {},
                 DexError::ErrorCode(DexErrorCode::RequestQueueFull) => {}
                 DexError::ErrorCode(DexErrorCode::ClientOrderIdIsZero) if expects_zero_id => {}
                 e => Err(e).unwrap(),
@@ -438,6 +448,42 @@ fn run_action<'bump>(
                         client_order_id
                     )
                 }
+            })
+            .ok();
+        }
+
+        Action::CancelRandomOrder {
+            side,
+            owner_id,
+            order_id,
+        } => {
+            let owner = match owners.get(&owner_id) { 
+                Some(owner) => owner,
+                None => {
+                    return;
+                }
+            };
+            let instruction = MarketInstruction::CancelOrderV2(CancelOrderInstructionV2 {
+                side,
+                order_id,
+            });
+            process_instruction(
+                market_accounts.market.owner,
+                &[
+                    market_accounts.market.clone(),
+                    market_accounts.bids.clone(),
+                    market_accounts.asks.clone(),
+                    owner.orders_account.clone(),
+                    owner.signer_account.clone(),
+                    market_accounts.event_q.clone(),
+                ],
+                &instruction.pack(),
+            )
+            .map_err(|e| match e {
+                DexError::ErrorCode(DexErrorCode::OrderNotFound) => {},
+                DexError::ErrorCode(DexErrorCode::OrderNotYours) => {},
+                DexError::ErrorCode(DexErrorCode::RentNotProvided) => {},
+                e => Err(e).unwrap(),
             })
             .ok();
         }
@@ -580,7 +626,7 @@ fn get_max_possible_coin_gained(actions: &Vec<Action>) -> HashMap<OwnerId, u64> 
             if instruction.side == Side::Bid {
                 let value = max_possible.entry(*owner_id).or_insert(0u64);
                 *value =
-                    value.saturating_add(instruction.max_qty.get().saturating_mul(COIN_LOT_SIZE));
+                    value.saturating_add(instruction.max_coin_qty.get().saturating_mul(COIN_LOT_SIZE));
             }
         }
     }
@@ -597,10 +643,11 @@ fn get_max_possible_pc_spent(actions: &Vec<Action>) -> HashMap<OwnerId, u64> {
         {
             if instruction.side == Side::Bid {
                 let cost = instruction
-                    .max_qty
+                    .max_coin_qty
                     .get()
                     .saturating_mul(instruction.limit_price.get())
-                    .saturating_mul(PC_LOT_SIZE);
+                    .saturating_mul(PC_LOT_SIZE)
+                    .min(instruction.max_native_pc_qty_including_fees.get());
                 let cost_plus_fees = cost.saturating_add(cost / 100);
                 let value = max_possible.entry(*owner_id).or_insert(0u64);
                 *value = value.saturating_add(cost_plus_fees);
@@ -621,7 +668,13 @@ fn get_max_possible_coin_spent(actions: &Vec<Action>) -> HashMap<OwnerId, u64> {
             if instruction.side == Side::Ask {
                 let value = max_possible.entry(*owner_id).or_insert(0u64);
                 *value =
-                    value.saturating_add(instruction.max_qty.get().saturating_mul(COIN_LOT_SIZE));
+                    value.saturating_add(instruction.max_coin_qty.get().saturating_mul(COIN_LOT_SIZE))/*.min(
+                        (instruction.max_native_pc_qty_including_fees.get() - 1)
+                            .div_euclid(PC_LOT_SIZE)
+                            .div_euclid(instruction.limit_price.get())
+                            .saturating_add(1)
+                            .saturating_mul(COIN_LOT_SIZE)
+                    )*/;
             }
         }
     }
@@ -642,12 +695,12 @@ fn get_max_possible_pc_gained(actions: &Vec<Action>) -> HashMap<OwnerId, u64> {
             }
             if instruction.side == Side::Ask {
                 let max_take = instruction
-                    .max_qty
+                    .max_coin_qty
                     .get()
                     .saturating_mul(max_price)
                     .saturating_mul(PC_LOT_SIZE);
                 let max_provide = instruction
-                    .max_qty
+                    .max_coin_qty
                     .get()
                     .saturating_mul(instruction.limit_price.get())
                     .saturating_mul(PC_LOT_SIZE);

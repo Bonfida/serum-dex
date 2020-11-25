@@ -106,6 +106,8 @@ pub enum DexErrorCode {
     WrongRentSysvarAccount,
     RentNotProvided,
     OrdersNotRentExempt,
+    OrderNotFound,
+    OrderNotYours,
 
     Unknown = 1000,
 
