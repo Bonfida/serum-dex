@@ -23,7 +23,7 @@ use serum_dex::state::{strip_header, MarketState, OpenOrders, ToAlignedBytes};
 use serum_dex_fuzz::{
     get_token_account_balance, new_dex_owned_account_with_lamports, new_sol_account,
     new_token_account, process_instruction, setup_market, MarketAccounts, COIN_LOT_SIZE,
-    PC_LOT_SIZE,
+    PC_LOT_SIZE, NoSolLoggingStubs,
 };
 
 #[derive(Debug, Arbitrary, Clone)]
@@ -149,6 +149,8 @@ fuzz_target!(|actions: Vec<Action>| { run_actions(actions) });
 fn run_actions(actions: Vec<Action>) {
     if *VERBOSE >= 1 {
         println!("{:#?}", actions);
+    } else {
+        solana_program::program_stubs::set_syscall_stubs(Box::new(NoSolLoggingStubs));
     }
 
     let bump = Bump::new();

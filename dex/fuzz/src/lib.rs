@@ -7,6 +7,8 @@ use solana_program::account_info::AccountInfo;
 use solana_program::bpf_loader;
 use solana_program::clock::Epoch;
 use solana_program::program_pack::Pack;
+use solana_program::instruction::Instruction;
+use solana_program::entrypoint::ProgramResult;
 use solana_program::pubkey::Pubkey;
 use solana_program::rent::Rent;
 use solana_program::system_program;
@@ -322,4 +324,16 @@ pub fn get_token_account_balance(account: &AccountInfo) -> u64 {
     let data = account.try_borrow_mut_data().unwrap();
     let unpacked = SplAccount::unpack(&data).unwrap();
     return unpacked.amount;
+}
+
+pub struct NoSolLoggingStubs;
+
+impl solana_program::program_stubs::SyscallStubs for NoSolLoggingStubs {
+    fn sol_log(&self, _message: &str) {}
+    fn sol_invoke_signed(&self,
+        _instruction: &Instruction,
+        _account_infos: &[AccountInfo],
+        _signers_seeds: &[&[&[u8]]]) -> ProgramResult {
+        unimplemented!()
+    }
 }
