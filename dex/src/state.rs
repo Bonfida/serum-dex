@@ -2598,33 +2598,35 @@ impl State {
             }
         };
 
-        let deposit_instruction = spl_token::instruction::transfer(
-            &spl_token::ID,
-            payer.inner().key,
-            deposit_vault.inner().key,
-            owner.inner().key,
-            &[],
-            deposit_amount,
-        )
-        .unwrap();
+        if deposit_amount != 0 {
+            let deposit_instruction = spl_token::instruction::transfer(
+                &spl_token::ID,
+                payer.inner().key,
+                deposit_vault.inner().key,
+                owner.inner().key,
+                &[],
+                deposit_amount,
+            )
+            .unwrap();
 
-        invoke_spl_token(
-            &deposit_instruction,
-            &[
-                payer.inner().clone(),
-                deposit_vault.inner().clone(),
-                owner.inner().clone(),
-                spl_token_program.inner().clone(),
-            ],
-            &[],
-        )
-        .map_err(|err| match err {
-            ProgramError::Custom(i) => match TokenError::from_u32(i) {
-                Some(TokenError::InsufficientFunds) => DexErrorCode::InsufficientFunds,
+            invoke_spl_token(
+                &deposit_instruction,
+                &[
+                    payer.inner().clone(),
+                    deposit_vault.inner().clone(),
+                    owner.inner().clone(),
+                    spl_token_program.inner().clone(),
+                ],
+                &[],
+            )
+            .map_err(|err| match err {
+                ProgramError::Custom(i) => match TokenError::from_u32(i) {
+                    Some(TokenError::InsufficientFunds) => DexErrorCode::InsufficientFunds,
+                    _ => DexErrorCode::TransferFailed,
+                },
                 _ => DexErrorCode::TransferFailed,
-            },
-            _ => DexErrorCode::TransferFailed,
-        })?;
+            })?;
+        }
 
         let order_id = req_q.gen_order_id(instruction.limit_price.get(), instruction.side);
         let owner_slot = open_orders.add_order(order_id, instruction.side)?;
