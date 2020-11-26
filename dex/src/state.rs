@@ -16,7 +16,6 @@ use safe_transmute::{self, to_bytes::transmute_to_bytes, trivial::TriviallyTrans
 
 use solana_program::{
     account_info::AccountInfo,
-    info,
     program_error::ProgramError,
     program_pack::Pack,
     pubkey::Pubkey,
@@ -1801,7 +1800,7 @@ pub mod account_parser {
             let mut bids = market.load_bids_mut(bids_acc).or(check_unreachable!())?;
             let mut asks = market.load_asks_mut(asks_acc).or(check_unreachable!())?;
 
-            let mut event_q = market.load_event_queue_mut(event_q_acc)?;
+            let event_q = market.load_event_queue_mut(event_q_acc)?;
 
             let order_book_state = OrderBookState {
                 bids: bids.deref_mut(),
@@ -1942,7 +1941,7 @@ pub mod account_parser {
             let mut bids = market.load_bids_mut(bids_acc).or(check_unreachable!())?;
             let mut asks = market.load_asks_mut(asks_acc).or(check_unreachable!())?;
 
-            let mut event_q = market.load_event_queue_mut(event_q_acc)?;
+            let event_q = market.load_event_queue_mut(event_q_acc)?;
 
             let order_book_state = OrderBookState {
                 bids: bids.deref_mut(),
