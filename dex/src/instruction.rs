@@ -248,16 +248,10 @@ pub struct CancelOrderInstruction {
 
 impl CancelOrderInstructionV2 {
     fn unpack(data: &[u8; 20]) -> Option<Self> {
-        let (&side_arr, &oid_arr) =
-            array_refs![data, 4, 16];
-        let side = Side::try_from_primitive(
-            u32::from_le_bytes(side_arr).try_into().ok()?
-        ).ok()?;
+        let (&side_arr, &oid_arr) = array_refs![data, 4, 16];
+        let side = Side::try_from_primitive(u32::from_le_bytes(side_arr).try_into().ok()?).ok()?;
         let order_id = u128::from_le_bytes(oid_arr);
-        Some(CancelOrderInstructionV2 {
-            side,
-            order_id,
-        })
+        Some(CancelOrderInstructionV2 { side, order_id })
     }
 }
 
@@ -589,7 +583,9 @@ mod fuzzing {
                 side: value.side,
                 limit_price: value.limit_price.try_into()?,
                 max_coin_qty: value.max_coin_qty.try_into()?,
-                max_native_pc_qty_including_fees: value.max_native_pc_qty_including_fees.try_into()?,
+                max_native_pc_qty_including_fees: value
+                    .max_native_pc_qty_including_fees
+                    .try_into()?,
                 order_type: value.order_type,
                 client_order_id: value.client_order_id,
                 self_trade_behavior: value.self_trade_behavior,
@@ -688,7 +684,6 @@ mod fuzzing {
             )
         }
     }
-
 
     impl arbitrary::Arbitrary for NewOrderInstructionV2 {
         fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self, arbitrary::Error> {

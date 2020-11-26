@@ -14,7 +14,9 @@ use crate::{
     critbit::{LeafNode, NodeHandle, Slab, SlabView},
     error::DexError,
     fees::{self, FeeTier},
-    state::{Event, EventQueue, EventView, MarketState, Request, RequestQueue, RequestView, OpenOrders},
+    state::{
+        Event, EventQueue, EventView, MarketState, OpenOrders, Request, RequestQueue, RequestView,
+    },
 };
 
 #[cfg(not(feature = "program"))]
@@ -863,7 +865,8 @@ impl<'ob> OrderBookState<'ob> {
             .orders_mut(side)
             .remove_by_key(order_id)
             .ok_or(DexErrorCode::OrderNotFound)?;
-        check_assert_eq!(leaf_node.owner(), open_orders_address).or(Err(DexErrorCode::OrderNotYours))?;
+        check_assert_eq!(leaf_node.owner(), open_orders_address)
+            .or(Err(DexErrorCode::OrderNotYours))?;
 
         let open_orders_slot = leaf_node.owner_slot();
         check_assert_eq!(Some(side), open_orders.slot_side(open_orders_slot))?;
@@ -883,7 +886,8 @@ impl<'ob> OrderBookState<'ob> {
 
         match side {
             Side::Bid => {
-                let native_qty_unlocked = leaf_node.quantity() * leaf_node.price().get() * self.market_state.pc_lot_size;
+                let native_qty_unlocked =
+                    leaf_node.quantity() * leaf_node.price().get() * self.market_state.pc_lot_size;
                 open_orders.unlock_pc(native_qty_unlocked);
             }
             Side::Ask => {
