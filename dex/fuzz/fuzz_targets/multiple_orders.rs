@@ -15,7 +15,9 @@ use libfuzzer_sys::fuzz_target;
 use solana_program::account_info::AccountInfo;
 
 use serum_dex::error::{DexError, DexErrorCode};
-use serum_dex::instruction::{CancelOrderInstructionV2, CancelOrderInstruction, MarketInstruction, NewOrderInstructionV3};
+use serum_dex::instruction::{
+    CancelOrderInstruction, CancelOrderInstructionV2, MarketInstruction, NewOrderInstructionV3, SelfTradeBehavior,
+};
 use serum_dex::matching::Side;
 use serum_dex::state::{strip_header, MarketState, OpenOrders, ToAlignedBytes};
 use serum_dex_fuzz::{
@@ -374,6 +376,8 @@ fn run_action<'bump>(
             .map_err(|e| match e {
                 DexError::ErrorCode(DexErrorCode::InsufficientFunds) => {}
                 DexError::ErrorCode(DexErrorCode::RequestQueueFull) => {}
+                DexError::ErrorCode(DexErrorCode::WouldSelfTrade)
+                    if instruction.self_trade_behavior == SelfTradeBehavior::AbortTransaction => {}
                 e => Err(e).unwrap(),
             })
             .ok();
@@ -417,10 +421,7 @@ fn run_action<'bump>(
                 }
                 MarketInstruction::CancelOrderByClientIdV2(client_order_id)
             } else {
-                MarketInstruction::CancelOrderV2(CancelOrderInstructionV2 {
-                    side,
-                    order_id,
-                })
+                MarketInstruction::CancelOrderV2(CancelOrderInstructionV2 { side, order_id })
             };
             process_instruction(
                 market_accounts.market.owner,
@@ -435,7 +436,7 @@ fn run_action<'bump>(
                 &instruction.pack(),
             )
             .map_err(|e| match e {
-                DexError::ErrorCode(DexErrorCode::OrderNotFound) => {},
+                DexError::ErrorCode(DexErrorCode::OrderNotFound) => {}
                 DexError::ErrorCode(DexErrorCode::RequestQueueFull) => {}
                 DexError::ErrorCode(DexErrorCode::ClientOrderIdIsZero) if expects_zero_id => {}
                 e => Err(e).unwrap(),
@@ -456,16 +457,14 @@ fn run_action<'bump>(
             owner_id,
             order_id,
         } => {
-            let owner = match owners.get(&owner_id) { 
+            let owner = match owners.get(&owner_id) {
                 Some(owner) => owner,
                 None => {
                     return;
                 }
             };
-            let instruction = MarketInstruction::CancelOrderV2(CancelOrderInstructionV2 {
-                side,
-                order_id,
-            });
+            let instruction =
+                MarketInstruction::CancelOrderV2(CancelOrderInstructionV2 { side, order_id });
             process_instruction(
                 market_accounts.market.owner,
                 &[
@@ -479,9 +478,9 @@ fn run_action<'bump>(
                 &instruction.pack(),
             )
             .map_err(|e| match e {
-                DexError::ErrorCode(DexErrorCode::OrderNotFound) => {},
-                DexError::ErrorCode(DexErrorCode::OrderNotYours) => {},
-                DexError::ErrorCode(DexErrorCode::RentNotProvided) => {},
+                DexError::ErrorCode(DexErrorCode::OrderNotFound) => {}
+                DexError::ErrorCode(DexErrorCode::OrderNotYours) => {}
+                DexError::ErrorCode(DexErrorCode::RentNotProvided) => {}
                 e => Err(e).unwrap(),
             })
             .ok();
@@ -624,8 +623,8 @@ fn get_max_possible_coin_gained(actions: &Vec<Action>) -> HashMap<OwnerId, u64> 
         {
             if instruction.side == Side::Bid {
                 let value = max_possible.entry(*owner_id).or_insert(0u64);
-                *value =
-                    value.saturating_add(instruction.max_coin_qty.get().saturating_mul(COIN_LOT_SIZE));
+                *value = value
+                    .saturating_add(instruction.max_coin_qty.get().saturating_mul(COIN_LOT_SIZE));
             }
         }
     }

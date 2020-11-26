@@ -67,6 +67,7 @@ pub struct InitializeMarketInstruction {
 pub enum SelfTradeBehavior {
     DecrementTake = 0,
     CancelProvide = 1,
+    AbortTransaction = 2,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
@@ -168,24 +169,24 @@ impl NewOrderInstructionV3 {
             &self_trade_behavior_arr,
             &otype_arr,
             &client_order_id_bytes,
-            &limit_arr
+            &limit_arr,
         ) = array_refs![data, 4, 8, 8, 8, 4, 4, 8, 2];
 
-        let side = Side::try_from_primitive(
-            u32::from_le_bytes(side_arr).try_into().ok()?
-        ).ok()?;
+        let side = Side::try_from_primitive(u32::from_le_bytes(side_arr).try_into().ok()?).ok()?;
         let limit_price = NonZeroU64::new(u64::from_le_bytes(price_arr))?;
         let max_coin_qty = NonZeroU64::new(u64::from_le_bytes(max_coin_qty_arr))?;
-        let max_native_pc_qty_including_fees = NonZeroU64::new(u64::from_le_bytes(max_native_pc_qty_arr))?;
+        let max_native_pc_qty_including_fees =
+            NonZeroU64::new(u64::from_le_bytes(max_native_pc_qty_arr))?;
         let self_trade_behavior = SelfTradeBehavior::try_from_primitive(
-            u32::from_le_bytes(self_trade_behavior_arr).try_into().ok()?
-        ).ok()?;
-        let order_type = OrderType::try_from_primitive(
-            u32::from_le_bytes(otype_arr).try_into().ok()?
-        ).ok()?;
+            u32::from_le_bytes(self_trade_behavior_arr)
+                .try_into()
+                .ok()?,
+        )
+        .ok()?;
+        let order_type =
+            OrderType::try_from_primitive(u32::from_le_bytes(otype_arr).try_into().ok()?).ok()?;
         let client_order_id = u64::from_le_bytes(client_order_id_bytes);
         let limit = u16::from_le_bytes(limit_arr);
-
 
         Some(NewOrderInstructionV3 {
             side,

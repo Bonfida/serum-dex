@@ -351,6 +351,9 @@ impl<'ob> OrderBookState<'ob> {
                         cancelled_provide_qty = best_bid_ref.quantity();
                         cancelled_take_qty = 0;
                     }
+                    SelfTradeBehavior::AbortTransaction => {
+                        return Err(DexErrorCode::WouldSelfTrade.into())
+                    }
                 };
 
                 let remaining_provide_size = bid_size - cancelled_provide_qty;
@@ -626,6 +629,9 @@ impl<'ob> OrderBookState<'ob> {
                     SelfTradeBehavior::DecrementTake => {
                         cancelled_take_qty = trade_qty;
                         cancelled_provide_qty = trade_qty;
+                    }
+                    SelfTradeBehavior::AbortTransaction => {
+                        return Err(DexErrorCode::WouldSelfTrade.into())
                     }
                 };
 
