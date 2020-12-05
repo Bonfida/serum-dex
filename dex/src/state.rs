@@ -32,6 +32,7 @@ use crate::{
         disable_authority, fee_sweeper, msrm_token, srm_token, CancelOrderInstruction,
         CancelOrderInstructionV2, InitializeMarketInstruction, MarketInstruction,
         NewOrderInstructionV2, NewOrderInstructionV3, SelfTradeBehavior,
+        SendTakeInstruction,
     },
     matching::{OrderBookState, OrderType, Side},
 };
@@ -1489,6 +1490,92 @@ pub mod account_parser {
         }
     }
 
+    pub struct SendTakeArgs<'a, 'b: 'a> {
+        pub instruction: &'a SendTakeInstruction,
+        pub signer: SignerAccount<'a, 'b>,
+        pub req_q: RequestQueue<'a>,
+        pub event_q: EventQueue<'a>,
+        pub order_book_state: OrderBookState<'a>,
+        pub coin_wallet: CoinWallet<'a, 'b>,
+        pub pc_wallet: PcWallet<'a, 'b>,
+        pub coin_vault: CoinVault<'a, 'b>,
+        pub pc_vault: PcVault<'a, 'b>,
+        pub spl_token_program: SplTokenProgram<'a, 'b>,
+        pub fee_tier: FeeTier,
+    }
+    impl<'a, 'b: 'a> SendTakeArgs<'a, 'b> {
+        pub fn with_parsed_args<T>(
+            program_id: &'a Pubkey,
+            instruction: &'a SendTakeInstruction,
+            accounts: &'a [AccountInfo<'b>],
+            f: impl FnOnce(SendTakeArgs) -> DexResult<T>,
+        ) -> DexResult<T> {
+            const MIN_ACCOUNTS: usize = 11;
+            check_assert!(accounts.len() == MIN_ACCOUNTS || accounts.len() == MIN_ACCOUNTS + 1)?;
+            let (fixed_accounts, fee_discount_account): (
+                &'a [AccountInfo<'b>; MIN_ACCOUNTS],
+                &'a [AccountInfo<'b>],
+            ) = array_refs![accounts, MIN_ACCOUNTS; .. ;];
+            let &[
+                ref market_acc,
+                ref req_q_acc,
+                ref event_q_acc,
+                ref bids_acc,
+                ref asks_acc,
+                ref coin_wallet_acc,
+                ref pc_wallet_acc,
+                ref signer_acc,
+                ref coin_vault_acc,
+                ref pc_vault_acc,
+                ref spl_token_program_acc,
+            ]: &'a [AccountInfo<'b>; MIN_ACCOUNTS] = fixed_accounts;
+            let srm_or_msrm_account = match fee_discount_account {
+                &[] => None,
+                &[ref account] => Some(TokenAccount::new(account)?),
+                _ => check_unreachable!()?,
+            };
+
+            let mut market: RefMut<'a, MarketState> = MarketState::load(market_acc, program_id)?;
+
+            let signer = SignerAccount::new(signer_acc)?;
+            let fee_tier = market.load_fee_tier(&signer.inner().key.to_aligned_bytes(), srm_or_msrm_account).or(check_unreachable!())?;
+            let req_q = market.load_request_queue_mut(req_q_acc)?;
+            let event_q = market.load_event_queue_mut(event_q_acc)?;
+
+            let coin_wallet = CoinWallet::from_account(coin_wallet_acc, &market)?;
+            let pc_wallet = PcWallet::from_account(pc_wallet_acc, &market)?;
+
+            let coin_vault = CoinVault::from_account(coin_vault_acc, &market)?;
+            let pc_vault = PcVault::from_account(pc_vault_acc, &market)?;
+
+            let spl_token_program = SplTokenProgram::new(spl_token_program_acc)?;
+
+            let mut bids = market.load_bids_mut(bids_acc).or(check_unreachable!())?;
+            let mut asks = market.load_asks_mut(asks_acc).or(check_unreachable!())?;
+
+            let order_book_state = OrderBookState {
+                bids: bids.deref_mut(),
+                asks: asks.deref_mut(),
+                market_state: market.deref_mut(),
+            };
+
+            let args = SendTakeArgs {
+                instruction,
+                signer,
+                req_q,
+                event_q,
+                fee_tier,
+                coin_wallet,
+                pc_wallet,
+                coin_vault,
+                pc_vault,
+                order_book_state,
+                spl_token_program,
+            };
+            f(args)
+        }
+    }
+
     pub struct NewOrderV3Args<'a, 'b: 'a> {
         pub instruction: &'a NewOrderInstructionV3,
         pub open_orders: &'a mut OpenOrders,
@@ -2212,8 +2299,34 @@ impl State {
                 accounts,
                 Self::process_sweep_fees,
             )?,
+            MarketInstruction::SendTake(ref inner) => {
+                account_parser::SendTakeArgs::with_parsed_args(
+                    program_id,
+                    inner,
+                    accounts,
+                    Self::process_send_take,
+                )?
+            }
         };
         Ok(())
+    }
+
+    #[cfg(feature = "program")]
+    fn process_send_take(args: account_parser::SendTakeArgs) -> DexResult {
+        let account_parser::SendTakeArgs {
+            instruction,
+            signer,
+            req_q,
+            event_q,
+            fee_tier,
+            coin_wallet,
+            pc_wallet,
+            coin_vault,
+            pc_vault,
+            order_book_state,
+            spl_token_program,
+        } = args;
+        unimplemented!()
     }
 
     #[cfg(feature = "program")]

@@ -16,7 +16,7 @@ use solana_program::account_info::AccountInfo;
 
 use serum_dex::error::{DexError, DexErrorCode};
 use serum_dex::instruction::{
-    CancelOrderInstruction, CancelOrderInstructionV2, MarketInstruction, NewOrderInstructionV3, SelfTradeBehavior,
+    CancelOrderInstructionV2, MarketInstruction, NewOrderInstructionV3, SelfTradeBehavior,
 };
 use serum_dex::matching::Side;
 use serum_dex::state::{strip_header, MarketState, OpenOrders, ToAlignedBytes};

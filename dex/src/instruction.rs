@@ -72,6 +72,34 @@ pub enum SelfTradeBehavior {
 
 #[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Arbitrary))]
+pub struct SendTakeInstruction {
+    pub side: Side,
+
+    #[cfg_attr(
+        test,
+        proptest(strategy = "(1u64..=std::u64::MAX).prop_map(|x| NonZeroU64::new(x).unwrap())")
+    )]
+    pub limit_price: NonZeroU64,
+
+    #[cfg_attr(
+        test,
+        proptest(strategy = "(1u64..=std::u64::MAX).prop_map(|x| NonZeroU64::new(x).unwrap())")
+    )]
+    pub max_coin_qty: NonZeroU64,
+    #[cfg_attr(
+        test,
+        proptest(strategy = "(1u64..=std::u64::MAX).prop_map(|x| NonZeroU64::new(x).unwrap())")
+    )]
+    pub max_native_pc_qty_including_fees: NonZeroU64,
+
+    pub min_coin_qty: u64,
+    pub min_native_pc_qty: u64,
+
+    pub limit: u16, // zero means unlimited (TODO implement this meaning)
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct NewOrderInstructionV3 {
     pub side: Side,
 
@@ -156,6 +184,39 @@ impl NewOrderInstructionV1 {
             client_id,
             self_trade_behavior,
         }
+    }
+}
+
+impl SendTakeInstruction {
+    fn unpack(data: &[u8; 46]) -> Option<Self> {
+        let (
+            &side_arr,
+            &price_arr,
+            &max_coin_qty_arr,
+            &max_native_pc_qty_arr,
+            &min_coin_qty_arr,
+            &min_native_pc_qty_arr,
+            &limit_arr,
+        ) = array_refs![data, 4, 8, 8, 8, 8, 8, 2];
+
+        let side = Side::try_from_primitive(u32::from_le_bytes(side_arr).try_into().ok()?).ok()?;
+        let limit_price = NonZeroU64::new(u64::from_le_bytes(price_arr))?;
+        let max_coin_qty = NonZeroU64::new(u64::from_le_bytes(max_coin_qty_arr))?;
+        let max_native_pc_qty_including_fees =
+            NonZeroU64::new(u64::from_le_bytes(max_native_pc_qty_arr))?;
+        let min_coin_qty = u64::from_le_bytes(min_coin_qty_arr);
+        let min_native_pc_qty = u64::from_le_bytes(min_native_pc_qty_arr);
+        let limit = u16::from_le_bytes(limit_arr);
+
+        Some(SendTakeInstruction {
+            side,
+            limit_price,
+            max_coin_qty,
+            max_native_pc_qty_including_fees,
+            min_coin_qty,
+            min_native_pc_qty,
+            limit,
+        })
     }
 }
 
@@ -364,6 +425,8 @@ pub enum MarketInstruction {
     /// 4. `[signer]` the OpenOrders owner
     /// 5. `[writable]` event_q
     CancelOrderByClientIdV2(u64),
+    /// TODO
+    SendTake(SendTakeInstruction),
 }
 
 impl MarketInstruction {
@@ -451,6 +514,10 @@ impl MarketInstruction {
                 let client_id = array_ref![data, 0, 8];
                 MarketInstruction::CancelOrderByClientIdV2(u64::from_le_bytes(*client_id))
             }
+            (13, 46) => MarketInstruction::SendTake({
+                let data_arr = array_ref![data, 0, 46];
+                SendTakeInstruction::unpack(data_arr)?
+            }),
             _ => return None,
         })
     }
@@ -575,6 +642,33 @@ mod fuzzing {
         pub limit: u16,
     }
 
+    #[derive(arbitrary::Arbitrary)]
+    struct SendTakeInstructionU64 {
+        pub side: Side,
+        pub limit_price: u64,
+        pub max_coin_qty: u64,
+        pub max_native_pc_qty_including_fees: u64,
+        pub min_coin_qty: u64,
+        pub min_native_pc_qty: u64,
+        pub limit: u16,
+    }
+
+    impl TryFrom<SendTakeInstructionU64> for SendTakeInstruction {
+        type Error = std::num::TryFromIntError;
+
+        fn try_from(value: SendTakeInstructionU64) -> Result<Self, Self::Error> {
+            Ok(Self {
+                side: value.side,
+                limit_price: value.limit_price.try_into()?,
+                max_coin_qty: value.max_coin_qty.try_into()?,
+                max_native_pc_qty_including_fees: value.max_native_pc_qty_including_fees.try_into()?,
+                min_coin_qty: value.min_coin_qty,
+                min_native_pc_qty: value.min_native_pc_qty,
+                limit: value.limit,
+            })
+        }
+    }
+
     impl TryFrom<NewOrderInstructionV3U64> for NewOrderInstructionV3 {
         type Error = std::num::TryFromIntError;
 
@@ -623,6 +717,20 @@ mod fuzzing {
         }
     }
 
+    impl From<&SendTakeInstruction> for SendTakeInstructionU64 {
+        fn from(value: &SendTakeInstruction) -> Self {
+            Self {
+                side: value.side,
+                limit_price: value.limit_price.into(),
+                max_coin_qty: value.max_coin_qty.into(),
+                max_native_pc_qty_including_fees: value.max_native_pc_qty_including_fees.into(),
+                min_coin_qty: value.min_coin_qty,
+                min_native_pc_qty: value.min_native_pc_qty,
+                limit: value.limit,
+            }
+        }
+    }
+
     impl From<&NewOrderInstructionV3> for NewOrderInstructionV3U64 {
         fn from(value: &NewOrderInstructionV3) -> Self {
             Self {
@@ -664,66 +772,33 @@ mod fuzzing {
         }
     }
 
-    impl arbitrary::Arbitrary for NewOrderInstructionV3 {
-        fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self, arbitrary::Error> {
-            <NewOrderInstructionV3U64 as arbitrary::Arbitrary>::arbitrary(u)?
-                .try_into()
-                .map_err(|_| arbitrary::Error::IncorrectFormat)
-        }
+    macro_rules! arbitrary_impl {
+        ($T:ident, $TU64:ident) => {
+            impl arbitrary::Arbitrary for $T {
+                fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self, arbitrary::Error> {
+                    <$TU64 as arbitrary::Arbitrary>::arbitrary(u)?
+                        .try_into()
+                        .map_err(|_| arbitrary::Error::IncorrectFormat)
+                }
 
-        fn size_hint(depth: usize) -> (usize, Option<usize>) {
-            <NewOrderInstructionV3U64 as arbitrary::Arbitrary>::size_hint(depth)
-        }
+                fn size_hint(depth: usize) -> (usize, Option<usize>) {
+                    <$TU64 as arbitrary::Arbitrary>::size_hint(depth)
+                }
 
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            let x: NewOrderInstructionV3U64 = self.into();
-            Box::new(
-                x.shrink()
-                    .map(NewOrderInstructionV3U64::try_into)
-                    .filter_map(Result::ok),
-            )
+                fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+                    let x: $TU64 = self.into();
+                    Box::new(
+                        x.shrink()
+                            .map($TU64::try_into)
+                            .filter_map(Result::ok),
+                    )
+                }
+            }
         }
     }
 
-    impl arbitrary::Arbitrary for NewOrderInstructionV2 {
-        fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self, arbitrary::Error> {
-            <NewOrderInstructionU64 as arbitrary::Arbitrary>::arbitrary(u)?
-                .try_into()
-                .map_err(|_| arbitrary::Error::IncorrectFormat)
-        }
-
-        fn size_hint(depth: usize) -> (usize, Option<usize>) {
-            <NewOrderInstructionU64 as arbitrary::Arbitrary>::size_hint(depth)
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            let x: NewOrderInstructionU64 = self.into();
-            Box::new(
-                x.shrink()
-                    .map(NewOrderInstructionU64::try_into)
-                    .filter_map(Result::ok),
-            )
-        }
-    }
-
-    impl arbitrary::Arbitrary for NewOrderInstructionV1 {
-        fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self, arbitrary::Error> {
-            <NewOrderInstructionU64 as arbitrary::Arbitrary>::arbitrary(u)?
-                .try_into()
-                .map_err(|_| arbitrary::Error::IncorrectFormat)
-        }
-
-        fn size_hint(depth: usize) -> (usize, Option<usize>) {
-            <NewOrderInstructionU64 as arbitrary::Arbitrary>::size_hint(depth)
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            let x: NewOrderInstructionU64 = self.into();
-            Box::new(
-                x.shrink()
-                    .map(NewOrderInstructionU64::try_into)
-                    .filter_map(Result::ok),
-            )
-        }
-    }
+    arbitrary_impl!(SendTakeInstruction, SendTakeInstructionU64);
+    arbitrary_impl!(NewOrderInstructionV3, NewOrderInstructionV3U64);
+    arbitrary_impl!(NewOrderInstructionV2, NewOrderInstructionU64);
+    arbitrary_impl!(NewOrderInstructionV1, NewOrderInstructionU64);
 }
