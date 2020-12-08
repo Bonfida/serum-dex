@@ -425,7 +425,11 @@ pub enum MarketInstruction {
     /// 4. `[signer]` the OpenOrders owner
     /// 5. `[writable]` event_q
     CancelOrderByClientIdV2(u64),
-    /// TODO
+    /// 0. `[writable]` market
+    /// 1. `[writable]` bids
+    /// 2. `[writable]` asks
+    /// 3. `[writable]` OpenOrders
+    /// 4. `[]`
     SendTake(SendTakeInstruction),
 }
 

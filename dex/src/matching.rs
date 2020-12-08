@@ -74,19 +74,23 @@ impl<'ob> OrderBookState<'ob> {
         }
     }
 
-    pub fn process_requests(
+    pub(crate) fn process_requests(
         &mut self,
         req_q: &mut RequestQueue,
         event_q: &mut EventQueue,
         limit: u16,
-    ) -> Result<(), DexError> {
+    ) -> Result<RequestorProceeds, DexError> {
         let mut limit_remaining = limit;
+        let mut proceeds = RequestorProceeds {
+            coin_qty: 0,
+            native_pc_qty: 0,
+        };
         while limit_remaining > 0 {
             let request = match req_q.peek_front_mut() {
                 Some(r) => r,
                 None => break,
             };
-            match self.process_orderbook_request(request, event_q, &mut limit_remaining)? {
+            match self.process_orderbook_request(request, event_q, &mut proceeds, &mut limit_remaining)? {
                 Some(remaining_request) => {
                     *request = remaining_request;
                 }
@@ -96,13 +100,14 @@ impl<'ob> OrderBookState<'ob> {
             };
         }
 
-        Ok(())
+        Ok(proceeds)
     }
 
     fn process_orderbook_request(
         &mut self,
         request: &Request,
         event_q: &mut EventQueue,
+        to_release: &mut RequestorProceeds,
         limit: &mut u16,
     ) -> DexResult<Option<Request>> {
         Ok(match request.as_view()? {
@@ -171,6 +176,11 @@ impl<'ob> OrderBookState<'ob> {
     }
 }
 
+pub(crate) struct RequestorProceeds {
+    pub coin_qty: u64,
+    pub native_pc_qty: u64,
+}
+
 struct NewOrderParams {
     side: Side,
     order_type: OrderType,
@@ -194,7 +204,6 @@ impl<'ob> OrderBookState<'ob> {
         &mut self,
 
         params: NewOrderParams,
-
         event_q: &mut EventQueue,
         limit: &mut u16,
     ) -> DexResult<Option<OrderRemaining>> {

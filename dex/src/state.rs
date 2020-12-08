@@ -2314,18 +2314,30 @@ impl State {
     #[cfg(feature = "program")]
     fn process_send_take(args: account_parser::SendTakeArgs) -> DexResult {
         let account_parser::SendTakeArgs {
-            instruction,
+            instruction: SendTakeInstruction {
+                side,
+                limit_price,
+                max_coin_qty,
+                max_native_pc_qty_including_fees,
+                min_coin_qty,
+                min_native_pc_qty,
+                limit,
+            },
             signer,
-            req_q,
-            event_q,
+            mut req_q,
+            mut event_q,
             fee_tier,
             coin_wallet,
             pc_wallet,
             coin_vault,
             pc_vault,
-            order_book_state,
+            mut order_book_state,
             spl_token_program,
         } = args;
+
+        order_book_state.process_requests(&mut req_q, &mut event_q, std::u16::MAX)?;
+        check_assert_eq!(req_q.header.count(), 0)?;
+
         unimplemented!()
     }
 
