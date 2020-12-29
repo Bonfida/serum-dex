@@ -103,7 +103,7 @@ impl<'ob> OrderBookState<'ob> {
         Ok(proceeds)
     }
 
-    fn process_orderbook_request(
+    pub(crate) fn process_orderbook_request(
         &mut self,
         request: &Request,
         event_q: &mut EventQueue,

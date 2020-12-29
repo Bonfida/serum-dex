@@ -2314,7 +2314,7 @@ impl State {
     #[cfg(feature = "program")]
     fn process_send_take(args: account_parser::SendTakeArgs) -> DexResult {
         let account_parser::SendTakeArgs {
-            instruction: SendTakeInstruction {
+            instruction: &SendTakeInstruction {
                 side,
                 limit_price,
                 max_coin_qty,
@@ -2335,7 +2335,7 @@ impl State {
             spl_token_program,
         } = args;
 
-        order_book_state.process_requests(&mut req_q, &mut event_q, std::u16::MAX)?;
+        //order_book_state.process_requests(&mut req_q, &mut event_q, std::u16::MAX)?;
         check_assert_eq!(req_q.header.count(), 0)?;
 
         unimplemented!()
@@ -2652,13 +2652,7 @@ impl State {
     }
 
     fn process_match_orders(args: account_parser::MatchOrdersArgs) -> DexResult {
-        let account_parser::MatchOrdersArgs {
-            mut order_book_state,
-            mut req_q,
-            mut event_q,
-            limit,
-        } = args;
-        order_book_state.process_requests(&mut req_q, &mut event_q, limit)
+        Ok(check_assert_eq!(args.req_q.header.count(), 0)?)
     }
 
     #[cfg(feature = "program")]
@@ -2678,7 +2672,7 @@ impl State {
             fee_tier,
         } = args;
 
-        order_book_state.process_requests(&mut req_q, &mut event_q, std::u16::MAX)?;
+        // order_book_state.process_requests(&mut req_q, &mut event_q, std::u16::MAX)?;
         check_assert_eq!(req_q.header.count(), 0)?;
 
         let deposit_amount;
