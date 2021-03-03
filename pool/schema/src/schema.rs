@@ -88,6 +88,12 @@ pub struct PoolState {
     /// Mint and vaults for the assets in the pool.
     pub assets: Vec<AssetInfo>,
 
+    // The maximum number of pooltokens that can be minted.
+    pub max_capacity: u64,
+
+    // The maximum of pooltokens that can be minted to a single address.
+    pub max_single_deposit: u64,
+
     /// Mint authority for the pool token and owner for the assets in the pool.
     pub vault_signer: Address,
     /// Nonce used to generate `vault_signer`.
@@ -193,6 +199,8 @@ pub struct InitializePoolRequest {
     pub vault_signer_nonce: u8,
     pub assets_length: u8,
     pub pool_name: String,
+    pub max_capacity: u64,
+    pub max_single_deposit: u64,
     pub fee_rate: u32,
     pub custom_data: Vec<u8>,
 }

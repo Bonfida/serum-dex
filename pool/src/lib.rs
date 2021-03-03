@@ -185,6 +185,8 @@ impl<'a, 'b, P: Pool> PoolProcessor<'a, 'b, P> {
                     })
                 })
                 .collect::<PoolResult<Vec<_>>>()?,
+            max_capacity: request.max_capacity,
+            max_single_deposit: request.max_single_deposit,
             vault_signer: vault_signer.key.into(),
             vault_signer_nonce: request.vault_signer_nonce,
             lqd_fee_vault: lqd_fee_vault.key.into(),
