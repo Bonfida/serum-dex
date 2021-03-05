@@ -74,7 +74,7 @@ macro_rules! declare_tag {
 pub mod fee_owner {
     use solana_program::declare_id;
 
-    declare_id!("3LTvJCPiPSMjX1kBJ6ZfEhn4G2hM46aJ1yEZsk8i12TK");
+    declare_id!("GTdpKc3miG9qCMgB8XfCveHZvCEbpGBPnHjBJaSN8dvi");
 }
 
 declare_tag!(PoolStateTag, u64, 0x16a7874c7fb2301b);
