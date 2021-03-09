@@ -132,7 +132,7 @@ pub struct ParamDesc {
     pub writable: bool,
 }
 
-pub const MIN_FEE_RATE: u32 = 150;
+pub const MIN_FEE_RATE: u32 = 0;
 pub const DEFAULT_FEE_RATE: u32 = 2500;
 pub const FEE_RATE_DENOMINATOR: u32 = 1_000_000;
 

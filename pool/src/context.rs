@@ -275,7 +275,7 @@ impl Fees {
         if fee_rate < MIN_FEE_RATE || fee_rate >= FEE_RATE_DENOMINATOR {
             msg!("Invalid fee");
             Err(ProgramError::InvalidArgument)
-        } else if tokens == 0 {
+        } else if tokens == 0 || fee_rate == 0 {
             Ok(Fees {
                 lqd_fee: 0,
                 referrer_fee: 0,
@@ -731,41 +731,42 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_get_fees_min_rate() {
-        assert_eq!(
-            Fees::from_fee_rate_and_tokens(MIN_FEE_RATE, 100_000).unwrap(),
-            Fees {
-                lqd_fee: 10,
-                initializer_fee: 0,
-                referrer_fee: 5,
-            }
-        );
-    }
+    // Min fee rate is set to 0
+    // #[test]
+    // fn test_get_fees_min_rate() {
+    //     assert_eq!(
+    //         Fees::from_fee_rate_and_tokens(MIN_FEE_RATE, 100_000).unwrap(),
+    //         Fees {
+    //             lqd_fee: 10,
+    //             initializer_fee: 0,
+    //             referrer_fee: 5,
+    //         }
+    //     );
+    // }
 
-    #[test]
-    fn test_get_fees_min_rate_small_size() {
-        assert_eq!(
-            Fees::from_fee_rate_and_tokens(MIN_FEE_RATE, 100).unwrap(),
-            Fees {
-                lqd_fee: 1,
-                initializer_fee: 0,
-                referrer_fee: 0,
-            }
-        );
-    }
+    // #[test]
+    // fn test_get_fees_min_rate_small_size() {
+    //     assert_eq!(
+    //         Fees::from_fee_rate_and_tokens(MIN_FEE_RATE, 100).unwrap(),
+    //         Fees {
+    //             lqd_fee: 1,
+    //             initializer_fee: 0,
+    //             referrer_fee: 0,
+    //         }
+    //     );
+    // }
 
-    #[test]
-    fn test_get_fees_zero_size() {
-        assert_eq!(
-            Fees::from_fee_rate_and_tokens(MIN_FEE_RATE, 0).unwrap(),
-            Fees {
-                lqd_fee: 0,
-                initializer_fee: 0,
-                referrer_fee: 0,
-            }
-        );
-    }
+    // #[test]
+    // fn test_get_fees_zero_size() {
+    //     assert_eq!(
+    //         Fees::from_fee_rate_and_tokens(MIN_FEE_RATE, 0).unwrap(),
+    //         Fees {
+    //             lqd_fee: 0,
+    //             initializer_fee: 0,
+    //             referrer_fee: 0,
+    //         }
+    //     );
+    // }
 
     #[test]
     fn test_get_fees_max_rate() {
@@ -779,10 +780,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_get_fees_rate_too_low() {
-        assert!(Fees::from_fee_rate_and_tokens(149, 100_000).is_err());
-    }
+    // Min fee set to 0
+    // #[test]
+    // fn test_get_fees_rate_too_low() {
+    //     assert!(Fees::from_fee_rate_and_tokens(149, 100_000).is_err());
+    // }
 
     #[test]
     fn test_get_fees_rate_too_high() {
